@@ -185,3 +185,7 @@ wandb
 /CLAUDE.md
 /.agents/skills
 /.claude/skills
+
+# custom
+data
+output

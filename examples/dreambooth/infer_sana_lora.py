@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -27,18 +28,29 @@ def sanitize_prompt_for_filename(prompt: str, max_length: int = 100) -> str:
     return prompt[:max_length] if prompt else "image"
 
 
-def build_output_dir(lora_dir: str) -> Path:
-    """Create and return the output directory used for generated images."""
-    output_dir = Path(lora_dir) / "generated"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    return output_dir
+def build_run_dirs(lora_dir: str) -> tuple[Path, Path]:
+    """Create and return the run directory and image output directory."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = Path(lora_dir) / "generated" / timestamp
+    images_dir = run_dir / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    return run_dir, images_dir
+
+
+def save_run_config(run_dir: Path, args) -> None:
+    """Save the script input parameters as a JSON file."""
+    config_path = run_dir / "config.json"
+
+    with config_path.open("w", encoding="utf-8") as file:
+        json.dump(vars(args), file, indent=2, ensure_ascii=False)
+
+    print(f"Saved config to: {config_path}")
 
 
 def build_output_path(output_dir: Path, prompt: str, seed: int) -> Path:
-    """Create an output path containing timestamp, seed, and prompt."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    """Create an output path containing seed and prompt."""
     prompt_part = sanitize_prompt_for_filename(prompt)
-    return output_dir / f"{timestamp}_seed{seed}_{prompt_part}.png"
+    return output_dir / f"seed{seed}_{prompt_part}.png"
 
 
 def generate_image(
@@ -63,6 +75,7 @@ def generate_image(
         complex_human_instruction=None,
         generator=torch.Generator(device="cuda").manual_seed(seed),
     ).images[0]
+
     image.save(output_path)
     print(f"Saved image to: {output_path}")
 
@@ -137,11 +150,14 @@ def main() -> None:
     """Generate multiple images from a trained Sana-LoRA adapter."""
     args = parse_args()
     pipe = load_pipeline(args.model_name, args.lora_dir)
-    output_dir = build_output_dir(args.lora_dir)
+
+    run_dir, images_dir = build_run_dirs(args.lora_dir)
+    save_run_config(run_dir, args)
 
     for index in range(args.num_images):
         seed = args.start_seed + index
-        output_path = build_output_path(output_dir, args.prompt, seed)
+        output_path = build_output_path(images_dir, args.prompt, seed)
+
         generate_image(
             pipe=pipe,
             prompt=args.prompt,

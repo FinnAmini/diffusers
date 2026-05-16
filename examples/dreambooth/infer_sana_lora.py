@@ -28,10 +28,11 @@ def sanitize_prompt_for_filename(prompt: str, max_length: int = 100) -> str:
     return prompt[:max_length] if prompt else "image"
 
 
-def build_run_dirs(lora_dir: str) -> tuple[Path, Path]:
+def build_run_dirs(lora_dir: str, lora_scale: float) -> tuple[Path, Path]:
     """Create and return the run directory and image output directory."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir = Path(lora_dir) / "generated" / timestamp
+    scale_part = str(lora_scale).replace(".", "p")
+    run_dir = Path(lora_dir) / "generated" / f"{timestamp}_scale{scale_part}"
     images_dir = run_dir / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
     return run_dir, images_dir
@@ -45,6 +46,21 @@ def save_run_config(run_dir: Path, args) -> None:
         json.dump(vars(args), file, indent=2, ensure_ascii=False)
 
     print(f"Saved config to: {config_path}")
+
+
+def build_lora_scales(start: float, end: float, step: float) -> list[float]:
+    """Create a list of LoRA scales including the end value."""
+    if step <= 0:
+        raise ValueError("lora_scale_step must be greater than 0.")
+
+    scales = []
+    current = start
+
+    while current <= end + 1e-9:
+        scales.append(round(current, 6))
+        current += step
+
+    return scales
 
 
 def build_output_path(output_dir: Path, prompt: str, seed: int) -> Path:
@@ -83,92 +99,59 @@ def generate_image(
 def parse_args():
     """Parse command-line arguments."""
     parser = ArgumentParser(description="Run inference with the trained Sana-LoRA adapter.")
-    parser.add_argument(
-        "--model_name",
-        type=str,
-        default="Efficient-Large-Model/Sana_1600M_1024px_BF16_diffusers",
-        help="The name of the base model to use.",
-    )
-    parser.add_argument(
-        "--lora_dir",
-        type=str,
-        required=True,
-        help="The directory where the LoRA weights are stored.",
-    )
-    parser.add_argument(
-        "--prompt",
-        type=str,
-        default="a photo of sks dog",
-        help="The prompt to generate images from.",
-    )
-    parser.add_argument(
-        "--num_images",
-        type=int,
-        default=4,
-        help="The number of images to generate.",
-    )
-    parser.add_argument(
-        "--start_seed",
-        type=int,
-        default=42,
-        help="The first seed to use for generation.",
-    )
-    parser.add_argument(
-        "--height",
-        type=int,
-        default=512,
-        help="The image height.",
-    )
-    parser.add_argument(
-        "--width",
-        type=int,
-        default=512,
-        help="The image width.",
-    )
-    parser.add_argument(
-        "--guidance_scale",
-        type=float,
-        default=4.5,
-        help="The classifier-free guidance scale.",
-    )
-    parser.add_argument(
-        "--num_inference_steps",
-        type=int,
-        default=30,
-        help="The number of denoising steps.",
-    )
-    parser.add_argument(
-        "--lora_scale",
-        type=float,
-        default=1.0,
-        help="The LoRA scale used via attention_kwargs.",
-    )
+    parser.add_argument("--model_name", type=str, default="Efficient-Large-Model/Sana_1600M_1024px_BF16_diffusers")
+    parser.add_argument("--lora_dir", type=str, required=True)
+    parser.add_argument("--prompt", type=str, default="a photo of sks dog")
+    parser.add_argument("--num_images", type=int, default=4)
+    parser.add_argument("--start_seed", type=int, default=42)
+    parser.add_argument("--height", type=int, default=512)
+    parser.add_argument("--width", type=int, default=512)
+    parser.add_argument("--guidance_scale", type=float, default=4.5)
+    parser.add_argument("--num_inference_steps", type=int, default=30)
+    parser.add_argument("--lora_scale_start", type=float, default=1.0)
+    parser.add_argument("--lora_scale_end", type=float, default=1.0)
+    parser.add_argument("--lora_scale_step", type=float, default=0.1)
     return parser.parse_args()
 
 
 def main() -> None:
-    """Generate multiple images from a trained Sana-LoRA adapter."""
+    """Generate multiple images in separate run directories for multiple LoRA scales."""
     args = parse_args()
     pipe = load_pipeline(args.model_name, args.lora_dir)
 
-    run_dir, images_dir = build_run_dirs(args.lora_dir)
-    save_run_config(run_dir, args)
+    lora_scales = build_lora_scales(
+        start=args.lora_scale_start,
+        end=args.lora_scale_end,
+        step=args.lora_scale_step,
+    )
 
-    for index in range(args.num_images):
-        seed = args.start_seed + index
-        output_path = build_output_path(images_dir, args.prompt, seed)
+    for lora_scale in lora_scales:
+        run_dir, images_dir = build_run_dirs(args.lora_dir, lora_scale)
 
-        generate_image(
-            pipe=pipe,
-            prompt=args.prompt,
-            output_path=output_path,
-            seed=seed,
-            height=args.height,
-            width=args.width,
-            guidance_scale=args.guidance_scale,
-            num_inference_steps=args.num_inference_steps,
-            lora_scale=args.lora_scale,
-        )
+        scale_args = vars(args).copy()
+        scale_args["lora_scale"] = lora_scale
+
+        config_path = run_dir / "config.json"
+        with config_path.open("w", encoding="utf-8") as file:
+            json.dump(scale_args, file, indent=2, ensure_ascii=False)
+
+        print(f"Saved config to: {config_path}")
+
+        for index in range(args.num_images):
+            seed = args.start_seed + index
+            output_path = build_output_path(images_dir, args.prompt, seed)
+
+            generate_image(
+                pipe=pipe,
+                prompt=args.prompt,
+                output_path=output_path,
+                seed=seed,
+                height=args.height,
+                width=args.width,
+                guidance_scale=args.guidance_scale,
+                num_inference_steps=args.num_inference_steps,
+                lora_scale=lora_scale,
+            )
 
 
 if __name__ == "__main__":

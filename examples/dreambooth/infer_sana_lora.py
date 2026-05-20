@@ -38,25 +38,43 @@ def build_run_dirs(lora_dir: str, lora_scale: float) -> tuple[Path, Path]:
     return run_dir, images_dir
 
 
-def save_run_config(run_dir: Path, args) -> None:
-    """Save the script input parameters as a JSON file."""
-    config_path = run_dir / "config.json"
+def build_lora_scales(args) -> list[float]:
+    """Create the list of LoRA scales from either a single value or a range."""
+    range_args = [
+        args.lora_scale_start,
+        args.lora_scale_end,
+        args.lora_scale_step,
+    ]
 
-    with config_path.open("w", encoding="utf-8") as file:
-        json.dump(vars(args), file, indent=2, ensure_ascii=False)
+    has_single_scale = args.lora_scale is not None
+    has_range = any(value is not None for value in range_args)
 
-    print(f"Saved config to: {config_path}")
+    if has_single_scale and has_range:
+        raise ValueError(
+            "Use either --lora_scale or the LoRA scale range arguments, not both."
+        )
 
+    if has_single_scale:
+        return [args.lora_scale]
 
-def build_lora_scales(start: float, end: float, step: float) -> list[float]:
-    """Create a list of LoRA scales including the end value."""
+    if not has_range:
+        return [1.0]
+
+    if args.lora_scale_start is None or args.lora_scale_end is None:
+        raise ValueError(
+            "When using a LoRA scale range, both --lora_scale_start and "
+            "--lora_scale_end must be specified."
+        )
+
+    step = args.lora_scale_step if args.lora_scale_step is not None else 0.1
+
     if step <= 0:
         raise ValueError("lora_scale_step must be greater than 0.")
 
     scales = []
-    current = start
+    current = args.lora_scale_start
 
-    while current <= end + 1e-9:
+    while current <= args.lora_scale_end + 1e-9:
         scales.append(round(current, 6))
         current += step
 
@@ -108,22 +126,18 @@ def parse_args():
     parser.add_argument("--width", type=int, default=512)
     parser.add_argument("--guidance_scale", type=float, default=4.5)
     parser.add_argument("--num_inference_steps", type=int, default=30)
-    parser.add_argument("--lora_scale_start", type=float, default=1.0)
-    parser.add_argument("--lora_scale_end", type=float, default=1.0)
-    parser.add_argument("--lora_scale_step", type=float, default=0.1)
+    parser.add_argument("--lora_scale", type=float, default=None)
+    parser.add_argument("--lora_scale_start", type=float, default=None)
+    parser.add_argument("--lora_scale_end", type=float, default=None)
+    parser.add_argument("--lora_scale_step", type=float, default=None)
     return parser.parse_args()
 
 
 def main() -> None:
-    """Generate multiple images in separate run directories for multiple LoRA scales."""
+    """Generate multiple images in separate run directories for one or more LoRA scales."""
     args = parse_args()
     pipe = load_pipeline(args.model_name, args.lora_dir)
-
-    lora_scales = build_lora_scales(
-        start=args.lora_scale_start,
-        end=args.lora_scale_end,
-        step=args.lora_scale_step,
-    )
+    lora_scales = build_lora_scales(args)
 
     for lora_scale in lora_scales:
         run_dir, images_dir = build_run_dirs(args.lora_dir, lora_scale)

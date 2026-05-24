@@ -28,11 +28,46 @@ def sanitize_prompt_for_filename(prompt: str, max_length: int = 100) -> str:
     return prompt[:max_length] if prompt else "image"
 
 
-def build_run_dirs(lora_dir: str, lora_scale: float) -> tuple[Path, Path]:
+def build_prompt_variants(prompt_template: str, prompt_args: list[str]) -> list[tuple[str | None, str]]:
+    """
+    Build all prompt variants.
+
+    Returns:
+        A list of tuples: (arg_value, resolved_prompt)
+    """
+    has_arg1_placeholder = "{arg1}" in prompt_template
+
+    if has_arg1_placeholder:
+        if not prompt_args:
+            raise ValueError(
+                "The prompt contains {arg1}, but no values were provided via --prompt_args."
+            )
+
+        return [
+            (arg_value, prompt_template.replace("{arg1}", arg_value))
+            for arg_value in prompt_args
+        ]
+
+    if prompt_args:
+        raise ValueError(
+            "--prompt_args was provided, but the prompt does not contain {arg1}."
+        )
+
+    return [(None, prompt_template)]
+
+
+def build_run_dirs(lora_dir: str, lora_scale: float, prompt_label: str | None) -> tuple[Path, Path]:
     """Create and return the run directory and image output directory."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     scale_part = str(lora_scale).replace(".", "p")
-    run_dir = Path(lora_dir) / "generated" / f"{timestamp}_scale{scale_part}"
+
+    if prompt_label is not None:
+        prompt_part = sanitize_prompt_for_filename(prompt_label, max_length=50)
+        run_name = f"{timestamp}_scale{scale_part}_arg1_{prompt_part}"
+    else:
+        run_name = f"{timestamp}_scale{scale_part}"
+
+    run_dir = Path(lora_dir) / "generated" / run_name
     images_dir = run_dir / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
     return run_dir, images_dir
@@ -120,6 +155,12 @@ def parse_args():
     parser.add_argument("--model_name", type=str, default="Efficient-Large-Model/Sana_1600M_1024px_BF16_diffusers")
     parser.add_argument("--lora_dir", type=str, required=True)
     parser.add_argument("--prompt", type=str, default="a photo of sks dog")
+    parser.add_argument(
+        "--prompt_args",
+        nargs="+",
+        default=None,
+        help="Multiple values for {arg1} in the prompt template.",
+    )
     parser.add_argument("--num_images", type=int, default=4)
     parser.add_argument("--start_seed", type=int, default=42)
     parser.add_argument("--height", type=int, default=512)
@@ -134,38 +175,50 @@ def parse_args():
 
 
 def main() -> None:
-    """Generate multiple images in separate run directories for one or more LoRA scales."""
+    """Generate multiple images for one or more LoRA scales and prompt variants."""
     args = parse_args()
     pipe = load_pipeline(args.model_name, args.lora_dir)
+
     lora_scales = build_lora_scales(args)
+    prompt_variants = build_prompt_variants(args.prompt, args.prompt_args or [])
 
     for lora_scale in lora_scales:
-        run_dir, images_dir = build_run_dirs(args.lora_dir, lora_scale)
+        for prompt_arg_value, resolved_prompt in prompt_variants:
+            print(f"Using prompt: {resolved_prompt}")
 
-        scale_args = vars(args).copy()
-        scale_args["lora_scale"] = lora_scale
-
-        config_path = run_dir / "config.json"
-        with config_path.open("w", encoding="utf-8") as file:
-            json.dump(scale_args, file, indent=2, ensure_ascii=False)
-
-        print(f"Saved config to: {config_path}")
-
-        for index in range(args.num_images):
-            seed = args.start_seed + index
-            output_path = build_output_path(images_dir, args.prompt, seed)
-
-            generate_image(
-                pipe=pipe,
-                prompt=args.prompt,
-                output_path=output_path,
-                seed=seed,
-                height=args.height,
-                width=args.width,
-                guidance_scale=args.guidance_scale,
-                num_inference_steps=args.num_inference_steps,
-                lora_scale=lora_scale,
+            run_dir, images_dir = build_run_dirs(
+                args.lora_dir,
+                lora_scale,
+                prompt_arg_value,
             )
+
+            run_args = vars(args).copy()
+            run_args["prompt_template"] = args.prompt
+            run_args["prompt_arg_value"] = prompt_arg_value
+            run_args["resolved_prompt"] = resolved_prompt
+            run_args["lora_scale"] = lora_scale
+
+            config_path = run_dir / "config.json"
+            with config_path.open("w", encoding="utf-8") as file:
+                json.dump(run_args, file, indent=2, ensure_ascii=False)
+
+            print(f"Saved config to: {config_path}")
+
+            for index in range(args.num_images):
+                seed = args.start_seed + index
+                output_path = build_output_path(images_dir, resolved_prompt, seed)
+
+                generate_image(
+                    pipe=pipe,
+                    prompt=resolved_prompt,
+                    output_path=output_path,
+                    seed=seed,
+                    height=args.height,
+                    width=args.width,
+                    guidance_scale=args.guidance_scale,
+                    num_inference_steps=args.num_inference_steps,
+                    lora_scale=lora_scale,
+                )
 
 
 if __name__ == "__main__":

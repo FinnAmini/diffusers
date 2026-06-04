@@ -155,7 +155,7 @@ def generate_image(
 def parse_args():
     """Parse command-line arguments."""
     parser = ArgumentParser(description="Run inference with the trained Sana-LoRA adapter.")
-    parser.add_argument("--model_name", type=str, default="Efficient-Large-Model/Sana_1600M_1024px_BF16_diffusers")
+    parser.add_argument("--model_name", type=str, default="Efficient-Large-Model/Sana_600M_512px_diffusers")
     parser.add_argument("--lora_dir", type=str, default=None)
     parser.add_argument("--prompt", type=str, default="a photo of sks dog")
     parser.add_argument(

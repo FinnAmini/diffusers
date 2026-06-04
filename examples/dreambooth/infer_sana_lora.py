@@ -8,14 +8,17 @@ import torch
 from diffusers import SanaPipeline
 
 
-def load_pipeline(model_name: str, lora_dir: str) -> SanaPipeline:
-    """Load the Sana pipeline and attach the trained LoRA adapter."""
+def load_pipeline(model_name: str, lora_dir: str | None) -> SanaPipeline:
+    """Load the Sana pipeline and optionally attach a LoRA adapter."""
     pipe = SanaPipeline.from_pretrained(
         model_name,
         torch_dtype=torch.bfloat16,
     )
     pipe.to("cuda")
-    pipe.load_lora_weights(lora_dir, weight_name="pytorch_lora_weights.safetensors")
+
+    if lora_dir is not None:
+        pipe.load_lora_weights(lora_dir, weight_name="pytorch_lora_weights.safetensors")
+
     return pipe
 
 
@@ -153,7 +156,7 @@ def parse_args():
     """Parse command-line arguments."""
     parser = ArgumentParser(description="Run inference with the trained Sana-LoRA adapter.")
     parser.add_argument("--model_name", type=str, default="Efficient-Large-Model/Sana_1600M_1024px_BF16_diffusers")
-    parser.add_argument("--lora_dir", type=str, required=True)
+    parser.add_argument("--lora_dir", type=str, default=None)
     parser.add_argument("--prompt", type=str, default="a photo of sks dog")
     parser.add_argument(
         "--prompt_args",

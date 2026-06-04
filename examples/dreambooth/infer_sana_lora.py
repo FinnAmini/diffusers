@@ -89,7 +89,7 @@ def build_run_dirs(lora_dir: str, lora_scale: float, prompt_label: str | None, m
     if lora_dir is not None:
         run_dir = Path(lora_dir) / "generated" / run_name
     else:
-        run_dir = Path("generated") / model_name.replace("/", "_") / run_name
+        run_dir = Path("output/generated") / model_name.replace("/", "_") / run_name
 
     images_dir = run_dir / "images"
     images_dir.mkdir(parents=True, exist_ok=True)

@@ -90,7 +90,7 @@ def build_run_dirs(lora_dir: str, lora_scale: float, prompt_label: str | None, m
         run_dir = Path(lora_dir) / "generated" / run_name
     else:
         run_dir = Path("generated") / model_name.replace("/", "_") / run_name
-        
+
     images_dir = run_dir / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
     return run_dir, images_dir
@@ -106,6 +106,14 @@ def build_lora_scales(args) -> list[float]:
 
     has_single_scale = args.lora_scale is not None
     has_range = any(value is not None for value in range_args)
+
+    if args.lora_dir is None:
+        if has_single_scale or has_range:
+            raise ValueError(
+                "LoRA scale arguments can only be used when --lora_dir is provided."
+            )
+
+        return [None]
 
     if has_single_scale and has_range:
         raise ValueError(
@@ -157,16 +165,20 @@ def generate_image(
     lora_scale: float,
 ) -> None:
     """Generate one image from a prompt and save it to disk."""
-    image = pipe(
-        prompt=prompt,
-        height=height,
-        width=width,
-        guidance_scale=guidance_scale,
-        num_inference_steps=num_inference_steps,
-        attention_kwargs={"scale": lora_scale},
-        complex_human_instruction=None,
-        generator=torch.Generator(device="cuda").manual_seed(seed),
-    ).images[0]
+    pipeline_kwargs = {
+        "prompt": prompt,
+        "height": height,
+        "width": width,
+        "guidance_scale": guidance_scale,
+        "num_inference_steps": num_inference_steps,
+        "complex_human_instruction": None,
+        "generator": torch.Generator(device="cuda").manual_seed(seed),
+    }
+
+    if lora_scale is not None:
+        pipeline_kwargs["attention_kwargs"] = {"scale": lora_scale}
+
+    image = pipe(**pipeline_kwargs).images[0]
 
     image.save(output_path)
     print(f"Saved image to: {output_path}")

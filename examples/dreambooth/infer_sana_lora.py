@@ -1,5 +1,6 @@
 import json
 import re
+import csv
 from datetime import datetime
 from pathlib import Path
 from argparse import ArgumentParser
@@ -21,6 +22,17 @@ def load_pipeline(model_name: str, lora_dir: str | None) -> SanaPipeline:
 
     return pipe
 
+def append_result_row(csv_path: Path, row: dict) -> None:
+    """Append one generation result to a CSV file."""
+    file_exists = csv_path.exists()
+
+    with csv_path.open("a", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=row.keys())
+
+        if not file_exists:
+            writer.writeheader()
+
+        writer.writerow(row)
 
 def sanitize_prompt_for_filename(prompt: str, max_length: int = 100) -> str:
     """Convert a prompt into a filesystem-safe filename fragment."""
@@ -222,6 +234,27 @@ def main() -> None:
                     num_inference_steps=args.num_inference_steps,
                     lora_scale=lora_scale,
                 )
+
+                append_result_row(
+                    csv_path=run_dir / "results.csv",
+                    row={
+                        "model_name": args.model_name,
+                        "lora_used": args.lora_dir is not None,
+                        "lora_dir": args.lora_dir,
+                        "lora_scale": lora_scale,
+                        "prompt_template": args.prompt,
+                        "prompt_arg_value": prompt_arg_value,
+                        "resolved_prompt": resolved_prompt,
+                        "seed": seed,
+                        "height": args.height,
+                        "width": args.width,
+                        "guidance_scale": args.guidance_scale,
+                        "num_inference_steps": args.num_inference_steps,
+                        "output_path": str(output_path),
+                    },
+                )
+            
+               
 
 
 if __name__ == "__main__":

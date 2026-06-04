@@ -71,10 +71,14 @@ def build_prompt_variants(prompt_template: str, prompt_args: list[str]) -> list[
     return [(None, prompt_template)]
 
 
-def build_run_dirs(lora_dir: str, lora_scale: float, prompt_label: str | None) -> tuple[Path, Path]:
+def build_run_dirs(lora_dir: str, lora_scale: float, prompt_label: str | None, model_name: str) -> tuple[Path, Path]:
     """Create and return the run directory and image output directory."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    scale_part = str(lora_scale).replace(".", "p")
+
+    if lora_scale is None:
+        scale_part = "base"
+    else:
+        scale_part = str(lora_scale).replace(".", "p")
 
     if prompt_label is not None:
         prompt_part = sanitize_prompt_for_filename(prompt_label, max_length=50)
@@ -82,7 +86,11 @@ def build_run_dirs(lora_dir: str, lora_scale: float, prompt_label: str | None) -
     else:
         run_name = f"{timestamp}_scale{scale_part}"
 
-    run_dir = Path(lora_dir) / "generated" / run_name
+    if lora_dir is not None:
+        run_dir = Path(lora_dir) / "generated" / run_name
+    else:
+        run_dir = Path("generated") / model_name.replace("/", "_") / run_name
+        
     images_dir = run_dir / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
     return run_dir, images_dir
@@ -205,6 +213,7 @@ def main() -> None:
                 args.lora_dir,
                 lora_scale,
                 prompt_arg_value,
+                args.model_name
             )
 
             run_args = vars(args).copy()
